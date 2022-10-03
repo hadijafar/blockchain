@@ -1,8 +1,10 @@
 import hashlib
 import json
-
+from textwrap import dedent
 from time import time
 from uuid import uuid4
+
+from flask import Flask, jsonify, request
 
 class Blockchain(object):   # manages blockchain and stores the transactions
     def __init__(self):
@@ -94,5 +96,78 @@ class Blockchain(object):   # manages blockchain and stores the transactions
         guess = f'{last_proof}{proof}'.encode()
         guess_hash = hashlib.sha256(guess).hexdigest()
         return guess_hash[:4] == "0000" # by adding more zeros, the time required to solve will greatly increase so 4 is good enough
-        
-   
+    
+# instantiate our Node
+app = Flask(__name__)
+
+# generate a globally unique address for this node (basically makes the name for the node)
+node_identifier = str(uuid4()).replace('-', '')
+
+# instantiate the Blockchain class
+blockchain = Blockchain()
+
+
+@app.route('/mine', methods=['GET']) #creates the /mine end point which is a GET request
+def mine():
+    # runs the proof of work algorithm to get the next proof...
+    last_block = blockchain.last_block
+    last_proof = last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
+
+    # receives an reward for finding the proof
+    # the sender is "0" to signify that this node has mined a new coin.
+    blockchain.new_transaction(
+        sender="0",
+        recipient=node_identifier,
+        amount=1,
+    )
+
+    # creates the new Block by adding it to the chain
+    previous_hash = blockchain.hash(last_block)
+    block = blockchain.new_block(proof, previous_hash)
+
+    response = {
+        'message': "New Block Forged",
+        'index': block['index'],
+        'transactions': block['transactions'],
+        'proof': block['proof'],
+        'previous_hash': block['previous_hash'],
+    }
+    return jsonify(response), 200
+  
+#function that creates transactions 
+@app.route('/transactions/new', methods=['POST']) #creates the /transaction/new endpoint which is a POST request since we send data to it
+def new_transaction():
+    values = request.get_json()
+
+    # Check that the required fields are in the POST'ed data
+    required = ['sender', 'recipient', 'amount']
+    if not all(k in values for k in required):
+        return 'Missing values', 400
+
+    # Create a new Transaction
+    index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
+
+    response = {'message': f'Transaction will be added to Block {index}'}
+    return jsonify(response), 201
+
+@app.route('/chain', methods=['GET']) #creates the /chain endpoint which returns the whole blockchain
+def full_chain():
+    response = {
+        'chain': blockchain.chain,
+        'length': len(blockchain.chain),
+    }
+    return jsonify(response), 200
+
+if __name__ == '__main__': #runs the servr on port 5000
+    app.run(host='0.0.0.0', port=5000)
+    
+'''
+Below is a sample of what user input may look like once this project is done
+
+{
+ "sender": "my address",
+ "recipient": "someone else's address",
+ "amount": 5
+}
+'''
